@@ -15,7 +15,7 @@ from database import (
     get_balance, add_balance, deduct_balance,
     add_deposit_record, get_user_deposits
 )
-from utils.style_analyzer import analyze_style
+from utils.style_analyzer import analyze_image_style
 from utils.image_generator import generate_images
 
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +27,7 @@ class Form(StatesGroup):
     waiting_character = State()
     waiting_num_images = State()
     waiting_style_choice = State()
+    waiting_pose_choice = State()
     waiting_deposit_amount = State()
 
 def main_keyboard():
@@ -59,7 +60,7 @@ async def cmd_help(message: Message):
         "**How to use:**\n\n"
         "1. Add Style → send reference image\n"
         "2. Deposit Stars (min 10)\n"
-        "3. Generate → choose style → character → number of images\n"
+        "3. Generate → choose style → character → pose option → number of images\n"
         "4. Stars will be deducted from your balance\n\n"
         "Admin is always free."
     )
@@ -173,7 +174,7 @@ async def process_style_name(message: Message, state: FSMContext):
         return
 
     name = message.text.strip()
-    description = await analyze_style(image_path)
+    description = await analyze_image_style(image_path)
     await add_style(message.from_user.id, name, image_path, description)
     await message.answer(f"✅ Style saved as: **{name}**", reply_markup=main_keyboard())
     await state.clear()
@@ -216,8 +217,21 @@ async def style_chosen(callback: CallbackQuery, state: FSMContext):
 @dp.message(Form.waiting_character)
 async def process_character(message: Message, state: FSMContext):
     await state.update_data(character=message.text.strip())
-    await message.answer("How many images? (1-10):")
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🎲 Random Pose", callback_data="pose_random")
+    builder.button(text="📌 Same as Reference", callback_data="pose_same")
+    builder.adjust(1)
+    await message.answer("Choose pose option:", reply_markup=builder.as_markup())
+    await state.set_state(Form.waiting_pose_choice)
+
+@dp.callback_query(F.data.startswith("pose_"))
+async def pose_chosen(callback: CallbackQuery, state: FSMContext):
+    same_pose = callback.data == "pose_same"
+    await state.update_data(same_pose=same_pose)
+    await callback.message.answer("How many images? (1-10):")
     await state.set_state(Form.waiting_num_images)
+    await callback.answer()
 
 @dp.message(Form.waiting_num_images)
 async def process_num_images(message: Message, state: FSMContext):
@@ -239,10 +253,11 @@ async def process_num_images(message: Message, state: FSMContext):
 
     cost = num * STARS_PER_IMAGE
     user_id = message.from_user.id
+    same_pose = data.get("same_pose", False)
 
     if user_id == ADMIN_ID:
         await message.answer("👑 Admin — Free generation")
-        await do_generate(message, data["character"], style, num)
+        await do_generate(message, data["character"], style, num, same_pose)
         await state.clear()
         return
 
@@ -266,16 +281,17 @@ async def process_num_images(message: Message, state: FSMContext):
 
     new_balance = await get_balance(user_id)
     await message.answer(f"✅ {cost} ⭐ deducted. Remaining: {new_balance} ⭐")
-    await do_generate(message, data["character"], style, num)
+    await do_generate(message, data["character"], style, num, same_pose)
     await state.clear()
 
-async def do_generate(message: Message, character: str, style, num: int):
+async def do_generate(message: Message, character: str, style, num: int, same_pose: bool = False):
     await message.answer("Generating images... Please wait.")
     results = await generate_images(
         character_name=character,
         style_description=style[4],
         reference_image_path=style[3],
-        num_images=num
+        num_images=num,
+        same_pose=same_pose
     )
     for res in results:
         if res.startswith("http"):
@@ -286,7 +302,7 @@ async def do_generate(message: Message, character: str, style, num: int):
 
 async def main():
     await init_db()
-    print("Bot starting with Wallet + Deposit History...")
+    print("Bot starting...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
