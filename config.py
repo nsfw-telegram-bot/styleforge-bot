@@ -11,3 +11,4 @@ os.makedirs(STYLES_DIR, exist_ok=True)
 
 STARS_PER_IMAGE = 10
 MIN_DEPOSIT = 10
+COMFYUI_URL = "https://jwg94l9y7zpmtx-3000.proxy.runpod.net"
