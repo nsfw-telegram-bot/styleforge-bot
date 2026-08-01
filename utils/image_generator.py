@@ -34,7 +34,7 @@ async def generate_images(
     results = []
     
     if not style_description:
-        style_description = "masterpiece, best quality, highly detailed, anime style, nsfw"
+        style_description = "masterpiece, best quality, highly detailed, anime style"
     
     async with aiohttp.ClientSession() as session:
         for i in range(num_images):
@@ -43,11 +43,7 @@ async def generate_images(
             else:
                 pose = random.choice(POSES)
             
-            prompt = (
-                f"masterpiece, best quality, ultra detailed, {style_description}, "
-                f"1girl, {character_name}, {pose}, beautiful detailed face, detailed eyes, "
-                f"perfect anatomy, sharp focus, high resolution, anime style, nsfw, explicit"
-            )
+            prompt = f"{style_description}, 1girl, {character_name}, {pose}"
             
             negative = "low quality, blurry, bad anatomy, deformed, extra limbs, watermark, text, censored, worst quality"
             
