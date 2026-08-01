@@ -4,7 +4,6 @@ import random
 import uuid
 from typing import List
 from config import COMFYUI_URL
-from utils.style_analyzer import analyze_image_style
 
 POSES = [
     "sitting on bed",
@@ -34,33 +33,31 @@ async def generate_images(
     
     results = []
     
-    if reference_image_path:
-        style_description = await analyze_image_style(reference_image_path)
-    
     if not style_description:
-        style_description = "masterpiece, best quality, highly detailed, anime style"
+        style_description = "masterpiece, best quality, highly detailed, anime style, nsfw"
     
     async with aiohttp.ClientSession() as session:
         for i in range(num_images):
-            if same_pose and reference_image_path:
-                pose = "same pose as reference image, detailed"
+            if same_pose:
+                pose = "same pose as reference, detailed"
             else:
                 pose = random.choice(POSES)
             
             prompt = (
-                f"{style_description}, 1girl, {character_name}, {pose}, "
-                f"beautiful face, detailed eyes, perfect anatomy, soft lighting"
+                f"masterpiece, best quality, ultra detailed, {style_description}, "
+                f"1girl, {character_name}, {pose}, beautiful detailed face, detailed eyes, "
+                f"perfect anatomy, sharp focus, high resolution, anime style, nsfw, explicit"
             )
             
-            negative = "low quality, blurry, bad anatomy, deformed, extra limbs, watermark, text, censored"
+            negative = "low quality, blurry, bad anatomy, deformed, extra limbs, watermark, text, censored, worst quality"
             
             workflow = {
                 "3": {
                     "inputs": {
                         "seed": random.randint(1, 999999999),
-                        "steps": 28,
-                        "cfg": 7,
-                        "sampler_name": "euler",
+                        "steps": 35,
+                        "cfg": 7.5,
+                        "sampler_name": "euler_ancestral",
                         "scheduler": "normal",
                         "denoise": 1.0,
                         "model": ["4", 0],
@@ -136,7 +133,7 @@ async def generate_images(
     
     return results
 
-async def wait_for_image(session, prompt_id, timeout=90):
+async def wait_for_image(session, prompt_id, timeout=120):
     for _ in range(timeout // 2):
         await asyncio.sleep(2)
         async with session.get(f"{COMFYUI_URL}/history/{prompt_id}") as resp:
