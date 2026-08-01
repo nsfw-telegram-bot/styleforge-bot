@@ -15,7 +15,6 @@ from database import (
     get_balance, add_balance, deduct_balance,
     add_deposit_record, get_user_deposits
 )
-from utils.style_analyzer import analyze_image_style
 from utils.image_generator import generate_images
 
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +23,7 @@ dp = Dispatcher(storage=MemoryStorage())
 
 class Form(StatesGroup):
     waiting_style_name = State()
+    waiting_style_description = State()
     waiting_character = State()
     waiting_num_images = State()
     waiting_style_choice = State()
@@ -58,9 +58,9 @@ async def cmd_start(message: Message):
 async def cmd_help(message: Message):
     await message.answer(
         "**How to use:**\n\n"
-        "1. Add Style → send reference image\n"
+        "1. Add Style → enter name → paste detailed style description\n"
         "2. Deposit Stars (min 10)\n"
-        "3. Generate → choose style → character → pose option → number of images\n"
+        "3. Generate → choose style → character → pose → number of images\n"
         "4. Stars will be deducted from your balance\n\n"
         "Admin is always free."
     )
@@ -152,30 +152,28 @@ async def successful_payment(message: Message):
 @dp.message(F.text == "➕ Add Style")
 @dp.message(Command("add_style"))
 async def add_style_cmd(message: Message, state: FSMContext):
-    await message.answer("Please send me the style reference image now:", reply_markup=ReplyKeyboardRemove())
+    await message.answer("Enter a name for this style:", reply_markup=ReplyKeyboardRemove())
     await state.set_state(Form.waiting_style_name)
 
-@dp.message(Form.waiting_style_name, F.photo)
-async def process_style_photo(message: Message, state: FSMContext):
-    photo = message.photo[-1]
-    file = await bot.get_file(photo.file_id)
-    file_path = os.path.join(STYLES_DIR, f"{message.from_user.id}_{photo.file_id}.jpg")
-    await bot.download_file(file.file_path, file_path)
-    await state.update_data(image_path=file_path)
-    await message.answer("Image received. Now send a name for this style:")
-
-@dp.message(Form.waiting_style_name, F.text)
+@dp.message(Form.waiting_style_name)
 async def process_style_name(message: Message, state: FSMContext):
-    data = await state.get_data()
-    image_path = data.get("image_path")
-    if not image_path:
-        await message.answer("Error. Try again.", reply_markup=main_keyboard())
-        await state.clear()
-        return
-
     name = message.text.strip()
-    description = await analyze_image_style(image_path)
-    await add_style(message.from_user.id, name, image_path, description)
+    await state.update_data(style_name=name)
+    await message.answer(
+        "Now paste the detailed style description:\n\n"
+        "Example:\nmasterpiece, best quality, ultra detailed, anime style, nsfw, explicit, beautiful detailed face, detailed eyes, perfect anatomy, soft lighting"
+    )
+    await state.set_state(Form.waiting_style_description)
+
+@dp.message(Form.waiting_style_description)
+async def process_style_description(message: Message, state: FSMContext):
+    data = await state.get_data()
+    name = data.get("style_name")
+    description = message.text.strip()
+    
+    dummy_path = f"text_style_{message.from_user.id}_{name}"
+    
+    await add_style(message.from_user.id, name, dummy_path, description)
     await message.answer(f"✅ Style saved as: **{name}**", reply_markup=main_keyboard())
     await state.clear()
 
@@ -289,15 +287,15 @@ async def do_generate(message: Message, character: str, style, num: int, same_po
     results = await generate_images(
         character_name=character,
         style_description=style[4],
-        reference_image_path=style[3],
+        reference_image_path=None,
         num_images=num,
         same_pose=same_pose
     )
     for res in results:
-        if res.startswith("http"):
+        if res and res.startswith("http"):
             await message.answer_photo(res)
         else:
-            await message.answer(res)
+            await message.answer(str(res) if res else "Failed to generate image")
     await message.answer("✅ Generation completed!", reply_markup=main_keyboard())
 
 async def main():
