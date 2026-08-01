@@ -85,3 +85,65 @@ async def generate_images(
                 },
                 "7": {
                     "inputs": {
+                        "text": "low quality, blurry, bad anatomy, watermark, text",
+                        "clip": ["4", 1]
+                    },
+                    "class_type": "CLIPTextEncode"
+                },
+                "8": {
+                    "inputs": {
+                        "samples": ["3", 0],
+                        "vae": ["4", 2]
+                    },
+                    "class_type": "VAEDecode"
+                },
+                "9": {
+                    "inputs": {
+                        "filename_prefix": "StyleForge",
+                        "images": ["8", 0]
+                    },
+                    "class_type": "SaveImage"
+                }
+            }
+            
+            # Queue the prompt
+            payload = {
+                "prompt": workflow,
+                "client_id": str(uuid.uuid4())
+            }
+            
+            try:
+                async with session.post(f"{COMFYUI_URL}/prompt", json=payload) as resp:
+                    if resp.status != 200:
+                        print(f"Error queuing prompt: {await resp.text()}")
+                        continue
+                    data = await resp.json()
+                    prompt_id = data.get("prompt_id")
+                
+                # Wait for result
+                image_url = await wait_for_image(session, prompt_id)
+                if image_url:
+                    results.append(image_url)
+                    
+            except Exception as e:
+                print(f"Generation error: {e}")
+                continue
+    
+    return results
+
+async def wait_for_image(session, prompt_id, timeout=120):
+    """Poll ComfyUI until the image is ready"""
+    for _ in range(timeout // 2):
+        await asyncio.sleep(2)
+        async with session.get(f"{COMFYUI_URL}/history/{prompt_id}") as resp:
+            if resp.status == 200:
+                history = await resp.json()
+                if prompt_id in history:
+                    outputs = history[prompt_id].get("outputs", {})
+                    for node_id, node_output in outputs.items():
+                        if "images" in node_output:
+                            image_data = node_output["images"][0]
+                            filename = image_data["filename"]
+                            subfolder = image_data.get("subfolder", "")
+                            return f"{COMFYUI_URL}/view?filename={filename}&subfolder={subfolder}&type=output"
+    return None
