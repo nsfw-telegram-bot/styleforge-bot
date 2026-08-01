@@ -1,5 +1,6 @@
 import random
 from typing import List
+from urllib.parse import quote
 
 POSES = [
     "sitting on bed",
@@ -26,19 +27,19 @@ async def generate_images(
 ) -> List[str]:
     
     results = []
+    
     for i in range(num_images):
         pose = random.choice(POSES)
         
         prompt = (
             f"masterpiece, best quality, highly detailed, {style_description}, "
             f"1girl, {character_name}, {pose}, beautiful face, detailed eyes, "
-            f"soft lighting, perfect anatomy"
+            f"soft lighting, perfect anatomy, anime style"
         )
         
-        results.append(
-            f"Generated image {i+1} for {character_name}\n"
-            f"Pose: {pose}\n"
-            f"Prompt: {prompt[:120]}..."
-        )
+        encoded_prompt = quote(prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?nologo=true&width=768&height=1024"
+        
+        results.append(image_url)
     
     return results
