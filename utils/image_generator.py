@@ -1,10 +1,10 @@
 import aiohttp
 import asyncio
 import random
-import json
 import uuid
 from typing import List
 from config import COMFYUI_URL
+from utils.style_analyzer import analyze_image_style
 
 POSES = [
     "sitting on bed",
@@ -20,38 +20,47 @@ POSES = [
     "lying on side",
     "kneeling",
     "from above",
-    "elegant standing pose"
+    "elegant standing pose",
+    "from below, legs spread"
 ]
 
 async def generate_images(
     character_name: str,
-    style_description: str,
+    style_description: str = None,
     reference_image_path: str = None,
-    num_images: int = 4
+    num_images: int = 4,
+    same_pose: bool = False
 ) -> List[str]:
-    """
-    Generate images using RunPod ComfyUI.
-    Currently basic text-to-image (we will improve IP-Adapter later).
-    """
+    
     results = []
+    
+    # إذا فيه صورة مرجعية نحللها
+    if reference_image_path:
+        style_description = await analyze_image_style(reference_image_path)
+    
+    if not style_description:
+        style_description = "masterpiece, best quality, highly detailed, anime style"
     
     async with aiohttp.ClientSession() as session:
         for i in range(num_images):
-            pose = random.choice(POSES)
+            if same_pose and reference_image_path:
+                pose = "same pose as reference image, detailed"
+            else:
+                pose = random.choice(POSES)
             
             prompt = (
-                f"masterpiece, best quality, highly detailed, {style_description}, "
-                f"1girl, {character_name}, {pose}, beautiful face, detailed eyes, "
-                f"soft lighting, perfect anatomy, anime style"
+                f"{style_description}, 1girl, {character_name}, {pose}, "
+                f"beautiful face, detailed eyes, perfect anatomy, soft lighting"
             )
             
-            # Simple workflow for now (text-to-image)
+            negative = "low quality, blurry, bad anatomy, deformed, extra limbs, watermark, text, censored"
+            
             workflow = {
                 "3": {
                     "inputs": {
                         "seed": random.randint(1, 999999999),
-                        "steps": 25,
-                        "cfg": 7.5,
+                        "steps": 28,
+                        "cfg": 7,
                         "sampler_name": "euler",
                         "scheduler": "normal",
                         "denoise": 1.0,
@@ -85,7 +94,7 @@ async def generate_images(
                 },
                 "7": {
                     "inputs": {
-                        "text": "low quality, blurry, bad anatomy, watermark, text",
+                        "text": negative,
                         "clip": ["4", 1]
                     },
                     "class_type": "CLIPTextEncode"
@@ -106,6 +115,43 @@ async def generate_images(
                 }
             }
             
+            payload = {
+                "prompt": workflow,
+                "client_id": str(uuid.uuid4())
+            }
+            
+            try:
+                async with session.post(f"{COMFYUI_URL}/prompt", json=payload) as resp:
+                    if resp.status != 200:
+                        print(f"Error: {await resp.text()}")
+                        continue
+                    data = await resp.json()
+                    prompt_id = data.get("prompt_id")
+                
+                image_url = await wait_for_image(session, prompt_id)
+                if image_url:
+                    results.append(image_url)
+            except Exception as e:
+                print(f"Generation error: {e}")
+                continue
+    
+    return results
+
+async def wait_for_image(session, prompt_id, timeout=90):
+    for _ in range(timeout // 2):
+        await asyncio.sleep(2)
+        async with session.get(f"{COMFYUI_URL}/history/{prompt_id}") as resp:
+            if resp.status == 200:
+                history = await resp.json()
+                if prompt_id in history:
+                    outputs = history[prompt_id].get("outputs", {})
+                    for node_id, node_output in outputs.items():
+                        if "images" in node_output:
+                            img = node_output["images"][0]
+                            filename = img["filename"]
+                            subfolder = img.get("subfolder", "")
+                            return f"{COMFYUI_URL}/view?filename={filename}&subfolder={subfolder}&type=output"
+    return None            
             # Queue the prompt
             payload = {
                 "prompt": workflow,
